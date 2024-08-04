@@ -1,2 +1,2 @@
-# diary-eval
- Voice activity and sound quality evaluation tool
+# Diary-Speech-Evaluator
+ Voice activity detection-based speech evaluation tool
