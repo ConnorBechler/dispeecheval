@@ -46,7 +46,7 @@ def text_graph(speech_frames : list, length : int, outsize=100):
         inds = set(range(int(c*chunk_len), int((c+1)*chunk_len)))
         if len(speech_set & inds) > len(inds)/2:
             output += "x"
-        else: output+= "-"
+        else: output+= "_"
     return(output)
 
 def precision(tp, fp): return(tp/(tp+fp))
@@ -274,8 +274,8 @@ def add_sqanalyze(sparser=None, gui=False):
 
 def io_loop(parser=None, gui=False):
     if gui:
-        parser.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
         parser.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
+        parser.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
     if not(gui):
         parser = argparse.ArgumentParser(prog='DiSpeechEval',
                                      description='Speech quantity and quality evaluation tool',
@@ -306,42 +306,6 @@ def io_loop(parser=None, gui=False):
                         median_db_diff_thresh=args.median_db_diff_thresh,
                         print_graph=args.print_graph,
                         print_medians=args.print_medians))
-
-
-def core_loop(args):
-    print(args)
-    if "check" in args.command:
-        print(check_audio(path=Path(args.path), 
-                        return_flags=args.flag,
-                        return_summary=args.summarize,
-                        prop_nonspeech_thresh=args.prop_nonspeech_thresh,
-                        median_db_diff_thresh=args.median_db_diff_thresh,
-                        print_graph=args.print_graph,
-                        print_medians=args.print_medians))
-    elif args.command == "sqanalyze":
-        path = Path(args.path)
-        signal, sr = librosa.load(path)
-        print(aud_qual_metrics(
-            signal=signal,
-            fs=sr,
-            chunk=path.stem,
-            plot=args.plot,
-            loudness=args.loudness,
-            sharpness=args.sharpness,
-            speechintelindex=args.SII,
-            roughness=args.roughness))
-
-
-def cli():
-    parser = argparse.ArgumentParser(prog='DiSpeechEval',
-                                     description='Speech quantity and quality evaluation tool',
-                                     formatter_class=ArgumentDefaultsHelpFormatter)
-    sparser = parser.add_subparsers(help="Function from DiSpeechEval to call")
-    check = add_check(sparser)
-    sqanalyze = add_sqanalyze(sparser)
-    args = parser.parse_args()
-    core_loop(args)
-    
 
 #First Run: Median Speech DB Diff < .065, Non-speech Prop Thresh > .4
 #8 True Positives, 9 False Positives, 0 False Negatives
