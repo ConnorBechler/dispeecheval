@@ -14,7 +14,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-from gooey import Gooey
+from gooey import Gooey, GooeyParser
 
 def to_minutes(seconds : int, string=True):
     """Utility for converting seconds to minutes and seconds
@@ -250,12 +250,38 @@ def check_audio(path,
     table = pl.DataFrame(results,results_colheads,orient="row")
     return(table) 
 
-def cli():
-    parser = argparse.ArgumentParser(prog='DiSpeechEval',
+def add_check(sparser=None):
+    check = sparser.add_parser("check", help="Check speech quantity and quality")
+    check.add_argument("path")
+    check.add_argument("--flag", action="store_true", help="Return audio checker flags")
+    check.add_argument("--summarize", action="store_true", help="Return audio checker summaries")
+    check.add_argument("--prop_nonspeech_thresh", type=float, default=0.4, help="Flags if the proportion of audio that is non-speech exceeds this threshold")
+    check.add_argument("--median_db_diff_thresh", type=float, default=0.065,
+                        help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
+    check.add_argument("--print_graph", action="store_true", help="Prints text graph of speech/nonspeech")
+    check.add_argument("--print_medians", action="store_true", help="Prints medians")
+    return check
+
+def add_sqanalyze(sparser=None, gui=False):
+    sqanalyze = sparser.add_parser("sqanalyze", help="Return sound quality metrics for file")
+    if gui: sqanalyze.add_argument("path", help="Path to audio file to analyze", widget="FileChooser")
+    else: sqanalyze.add_argument("path", help="Path to audio file to analyze")
+    sqanalyze.add_argument("--plot", action="store_true", help="Plot sound quality metrics")
+    sqanalyze.add_argument("--loudness", action="store_true", help="Return loudness")
+    sqanalyze.add_argument("--sharpness", action="store_true", help="Return sharpness")
+    sqanalyze.add_argument("--SII", action="store_true", help="Return speech intelligibility index")
+    sqanalyze.add_argument("--roughness", action="store_true", help="Return roughness")
+
+def io_loop(parser=None, gui=False):
+    if gui:
+        parser.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
+        parser.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
+    if not(gui):
+        parser = argparse.ArgumentParser(prog='DiSpeechEval',
                                      description='Speech quantity and quality evaluation tool',
-                                     formatter_class=ArgumentDefaultsHelpFormatter)#,
-                                     #epilog='Text at the bottom of help')
-    parser.add_argument("path")
+                                     formatter_class=ArgumentDefaultsHelpFormatter)
+        parser.add_argument("path", default="", help="Path to audio file or directory to analyze")
+        
     parser.add_argument("--flag", action="store_true", help="Return audio checker flags")
     parser.add_argument("--summarize", action="store_true", help="Return audio checker summaries")
     parser.add_argument("--prop_nonspeech_thresh", type=float, default=0.4, help="Flags if the proportion of audio that is non-speech exceeds this threshold")
@@ -263,22 +289,66 @@ def cli():
                         help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
     parser.add_argument("--print_graph", action="store_true", help="Prints text graph of speech/nonspeech")
     parser.add_argument("--print_medians", action="store_true", help="Prints medians")
-    args = vars(parser.parse_args())
+    args = parser.parse_args()
+    if gui:
+        if args.path != "":
+            path = Path(args.path)
+        elif args.folder != "":
+            path = Path(args.folder)
+        else:
+            raise Exception("No path or directory for analysis")
+    else:
+        path = Path(args.path)
+    print(check_audio(path=path, 
+                        return_flags=args.flag,
+                        return_summary=args.summarize,
+                        prop_nonspeech_thresh=args.prop_nonspeech_thresh,
+                        median_db_diff_thresh=args.median_db_diff_thresh,
+                        print_graph=args.print_graph,
+                        print_medians=args.print_medians))
 
-    print(check_audio(path=Path(args["path"]), 
-                      return_flags=args["flag"],
-                      return_summary=args["summarize"],
-                      prop_nonspeech_thresh=args["prop_nonspeech_thresh"],
-                      median_db_diff_thresh=args["median_db_diff_thresh"],
-                      print_graph=args["print_graph"],
-                      print_medians=args["print_medians"]))
+
+def core_loop(args):
+    print(args)
+    if "check" in args.command:
+        print(check_audio(path=Path(args.path), 
+                        return_flags=args.flag,
+                        return_summary=args.summarize,
+                        prop_nonspeech_thresh=args.prop_nonspeech_thresh,
+                        median_db_diff_thresh=args.median_db_diff_thresh,
+                        print_graph=args.print_graph,
+                        print_medians=args.print_medians))
+    elif args.command == "sqanalyze":
+        path = Path(args.path)
+        signal, sr = librosa.load(path)
+        print(aud_qual_metrics(
+            signal=signal,
+            fs=sr,
+            chunk=path.stem,
+            plot=args.plot,
+            loudness=args.loudness,
+            sharpness=args.sharpness,
+            speechintelindex=args.SII,
+            roughness=args.roughness))
+
+
+def cli():
+    parser = argparse.ArgumentParser(prog='DiSpeechEval',
+                                     description='Speech quantity and quality evaluation tool',
+                                     formatter_class=ArgumentDefaultsHelpFormatter)
+    sparser = parser.add_subparsers(help="Function from DiSpeechEval to call")
+    check = add_check(sparser)
+    sqanalyze = add_sqanalyze(sparser)
+    args = parser.parse_args()
+    core_loop(args)
+    
 
 #First Run: Median Speech DB Diff < .065, Non-speech Prop Thresh > .4
 #8 True Positives, 9 False Positives, 0 False Negatives
 #print(precision(8, 9), recall(8, 0), f1(8,9,0))
 
 if __name__ == "__main__":        
-    cli()
+    io_loop()
     """
     #dir = Path("C:/Users/bechl/Downloads/low_aud_qual")
     dirs = [Path("C:/Users/bechl/Downloads/kid"),Path("C:/Users/bechl/Downloads/teen"),Path("C:/Users/bechl/Downloads/adult")]
