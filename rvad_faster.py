@@ -68,7 +68,8 @@ def sflux(data, fs, winlen, ovrlen, nftt):
      eps = np.finfo(float).eps
 
      xf = enframe(data, fs, winlen, ovrlen) #framing
-     w = np.matrix(np.hamming(int(fs*winlen)) )
+     # Changed matrix in next line to array to suppress deprecation warning
+     w = np.array(np.hamming(int(fs*winlen)) )
      w = np.tile(w,(np.size(xf, axis = 0), 1))
 
      xf = np.multiply (xf, w) #apply window

@@ -2,7 +2,10 @@ from dispeecheval import add_sqanalyze, io_loop
 from argparse import ArgumentDefaultsHelpFormatter
 from gooey import Gooey, GooeyParser
 
-@Gooey(program_name="DiSpeechEval")
+@Gooey(program_name="DiSpeechEval",
+       default_size=(780, 650),
+       terminal_font_family="Courier New"
+       )
 def gui():
     parser = GooeyParser(prog='DiSpeechEval',
                          description='Speech quantity and quality evaluation tool')

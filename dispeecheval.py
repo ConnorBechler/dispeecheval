@@ -30,7 +30,7 @@ def to_minutes(seconds : int, string=True):
     if string: return(f"{int(min)}m{round(sec)}s")
     else: return(min, sec)
 
-def text_graph(speech_frames : list, length : int, outsize=100):
+def text_graph(speech_frames : list, length : int, outsize=60):
     """Returns textual representation of presence or absence of phenomenon in an audio file
     Args:
         speech_frames (list) : list of indexes indicating speech labels in an rvad vad_labels output, each index corresponding to 10 ms
@@ -217,7 +217,7 @@ def check_audio(path,
     results = []
     results_colheads = ["File"]
     if return_flags: results_colheads += ["nonspeech_flag", "db_diff_flag"]
-    if return_summary: results_colheads += ["total_s","speech_s","nonspeech_s", "speech_median_db","nonspeech_median_db","db_range"]
+    if return_summary: results_colheads += ["total_s","speech_s","nonspeech_s", "speech_median_db","nonspeech_median_db"]#,"db_range"]
     soundfile.available_formats
     if path.suffix == "": 
         paths = [path for path in path.iterdir() if path.suffix[1:].upper() in soundfile.available_formats().keys()]
@@ -232,11 +232,13 @@ def check_audio(path,
         speech_aud, nonspeech_aud = return_speech_and_nonspeech_aud(db_aud, sr, segments, nonspeech_segments)
         sp_median_db, nsp_median_db = np.median(speech_aud), np.median(nonspeech_aud)
         #print("Speech", to_minutes(speech), "Non-Speech", to_minutes(nonspeech))
+        if print_graph or print_medians:
+            print(path.stem)
         if print_graph: print(graph)
         if print_medians: 
                 print("Median speech db:",sp_median_db,
                     "Median non-speech db:",nsp_median_db,
-                    "Diff %", (sp_median_db-nsp_median_db)/db_range)
+                    "Proportional diff:", (sp_median_db-nsp_median_db)/db_range)
         if return_flags:
             silence_flag, db_diff_flag = False, False
             if nonspeech/length > prop_nonspeech_thresh: 
@@ -245,22 +247,11 @@ def check_audio(path,
                 db_diff_flag = True
             result += [silence_flag, db_diff_flag]
         if return_summary: 
-            result += [length, speech, nonspeech, sp_median_db, nsp_median_db, db_range]
+            result += [length, speech, nonspeech, sp_median_db, nsp_median_db]#,db_range]
         results.append(result)
+    #table = "\t".join(results_colheads) + "\n" + "\n".join(["\t".join([str(r) for r in result]) for result in results])
     table = pl.DataFrame(results,results_colheads,orient="row")
     return(table) 
-
-def add_check(sparser=None):
-    check = sparser.add_parser("check", help="Check speech quantity and quality")
-    check.add_argument("path")
-    check.add_argument("--flag", action="store_true", help="Return audio checker flags")
-    check.add_argument("--summarize", action="store_true", help="Return audio checker summaries")
-    check.add_argument("--prop_nonspeech_thresh", type=float, default=0.4, help="Flags if the proportion of audio that is non-speech exceeds this threshold")
-    check.add_argument("--median_db_diff_thresh", type=float, default=0.065,
-                        help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
-    check.add_argument("--print_graph", action="store_true", help="Prints text graph of speech/nonspeech")
-    check.add_argument("--print_medians", action="store_true", help="Prints medians")
-    return check
 
 def add_sqanalyze(sparser=None, gui=False):
     sqanalyze = sparser.add_parser("sqanalyze", help="Return sound quality metrics for file")
@@ -274,21 +265,31 @@ def add_sqanalyze(sparser=None, gui=False):
 
 def io_loop(parser=None, gui=False):
     if gui:
-        parser.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
-        parser.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
+        file_selector = parser.add_argument_group("Required Arguments", "Select either a file or a directory of audio files to analyze")
+        file_selector.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
+        file_selector.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
+        options = parser.add_argument_group("Analysis Options")
+        options.add_argument("--summarize", action="store_true", default=True, help="Return speech quantity and quality summaries")
+        options.add_argument("--flag", action="store_true", help="Return speech quantity and quality flags")
+        options.add_argument("--nonspeech_threshold", type=float, default=0.4, 
+                            help="Flags if the proportion of audio that is non-speech exceeds this threshold")
+        options.add_argument("--median_db_diff_thresh", type=float, default=0.065,
+                            help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
+        options.add_argument("--print_graphs", action="store_true", help="Prints text graph of speech/nonspeech")
+        options.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
     if not(gui):
         parser = argparse.ArgumentParser(prog='DiSpeechEval',
                                      description='Speech quantity and quality evaluation tool',
                                      formatter_class=ArgumentDefaultsHelpFormatter)
         parser.add_argument("path", default="", help="Path to audio file or directory to analyze")
-        
-    parser.add_argument("--flag", action="store_true", help="Return audio checker flags")
-    parser.add_argument("--summarize", action="store_true", help="Return audio checker summaries")
-    parser.add_argument("--prop_nonspeech_thresh", type=float, default=0.4, help="Flags if the proportion of audio that is non-speech exceeds this threshold")
-    parser.add_argument("--median_db_diff_thresh", type=float, default=0.065,
-                        help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
-    parser.add_argument("--print_graph", action="store_true", help="Prints text graph of speech/nonspeech")
-    parser.add_argument("--print_medians", action="store_true", help="Prints medians")
+        parser.add_argument("--summarize", action="store_true", default=True, help="Return speech quantity and quality summaries")
+        parser.add_argument("--flag", action="store_true", help="Return speech quantity and quality flags")
+        parser.add_argument("--nonspeech_threshold", type=float, default=0.4, 
+                            help="Flags if the proportion of audio that is non-speech exceeds this threshold")
+        parser.add_argument("--median_db_diff_thresh", type=float, default=0.065,
+                            help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
+        parser.add_argument("--print_graphs", action="store_true", help="Prints text graph of speech/nonspeech")
+        parser.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
     args = parser.parse_args()
     if gui:
         if args.path != "":
@@ -302,9 +303,9 @@ def io_loop(parser=None, gui=False):
     print(check_audio(path=path, 
                         return_flags=args.flag,
                         return_summary=args.summarize,
-                        prop_nonspeech_thresh=args.prop_nonspeech_thresh,
+                        prop_nonspeech_thresh=args.nonspeech_threshold,
                         median_db_diff_thresh=args.median_db_diff_thresh,
-                        print_graph=args.print_graph,
+                        print_graph=args.print_graphs,
                         print_medians=args.print_medians))
 
 #First Run: Median Speech DB Diff < .065, Non-speech Prop Thresh > .4
