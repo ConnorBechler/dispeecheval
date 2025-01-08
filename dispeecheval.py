@@ -1,5 +1,8 @@
 """
 Speech quantity and quality evaluation tool
+
+To run without GUI, include flag --ignore-gooey
+https://stackoverflow.com/questions/56580102/clever-ways-of-switching-between-gui-and-cli-modes-with-gooey
 """
 
 from pathlib import Path
@@ -190,7 +193,7 @@ def aud_qual_metrics(signal : np.ndarray,
             plt.savefig(f"{chunk}.png")
     return(results)
 
-def check_audio(path, 
+def check_audio(path : Path, 
          return_flags = True,
          return_summary = False,
          prop_nonspeech_thresh = .4, 
@@ -217,7 +220,7 @@ def check_audio(path,
     results = []
     results_colheads = ["File"]
     if return_flags: results_colheads += ["nonspeech_flag", "db_diff_flag"]
-    if return_summary: results_colheads += ["total_s","speech_s","nonspeech_s", "speech_median_db","nonspeech_median_db"]#,"db_range"]
+    if return_summary: results_colheads += ["total_s","speech_s", "speech_median_db","nonspeech_median_db"]#,"db_range"]
     soundfile.available_formats
     if path.suffix == "": 
         paths = [path for path in path.iterdir() if path.suffix[1:].upper() in soundfile.available_formats().keys()]
@@ -247,7 +250,7 @@ def check_audio(path,
                 db_diff_flag = True
             result += [silence_flag, db_diff_flag]
         if return_summary: 
-            result += [length, speech, nonspeech, sp_median_db, nsp_median_db]#,db_range]
+            result += [length, speech, sp_median_db, nsp_median_db]#,db_range]
         results.append(result)
     #table = "\t".join(results_colheads) + "\n" + "\n".join(["\t".join([str(r) for r in result]) for result in results])
     table = pl.DataFrame(results,results_colheads,orient="row")
@@ -263,43 +266,30 @@ def add_sqanalyze(sparser=None, gui=False):
     sqanalyze.add_argument("--SII", action="store_true", help="Return speech intelligibility index")
     sqanalyze.add_argument("--roughness", action="store_true", help="Return roughness")
 
-def io_loop(parser=None, gui=False):
-    if gui:
-        file_selector = parser.add_argument_group("Required Arguments", "Select either a file or a directory of audio files to analyze")
-        file_selector.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
-        file_selector.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
-        options = parser.add_argument_group("Analysis Options")
-        options.add_argument("--summarize", action="store_true", default=True, help="Return speech quantity and quality summaries")
-        options.add_argument("--flag", action="store_true", help="Return speech quantity and quality flags")
-        options.add_argument("--nonspeech_threshold", type=float, default=0.4, 
-                            help="Flags if the proportion of audio that is non-speech exceeds this threshold")
-        options.add_argument("--median_db_diff_thresh", type=float, default=0.065,
-                            help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
-        options.add_argument("--print_graphs", action="store_true", help="Prints text graph of speech/nonspeech")
-        options.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
-    if not(gui):
-        parser = argparse.ArgumentParser(prog='DiSpeechEval',
-                                     description='Speech quantity and quality evaluation tool',
-                                     formatter_class=ArgumentDefaultsHelpFormatter)
-        parser.add_argument("path", default="", help="Path to audio file or directory to analyze")
-        parser.add_argument("--summarize", action="store_true", default=True, help="Return speech quantity and quality summaries")
-        parser.add_argument("--flag", action="store_true", help="Return speech quantity and quality flags")
-        parser.add_argument("--nonspeech_threshold", type=float, default=0.4, 
-                            help="Flags if the proportion of audio that is non-speech exceeds this threshold")
-        parser.add_argument("--median_db_diff_thresh", type=float, default=0.065,
-                            help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
-        parser.add_argument("--print_graphs", action="store_true", help="Prints text graph of speech/nonspeech")
-        parser.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
+@Gooey(program_name="DiSpeechEval",
+       default_size=(780, 650),
+       terminal_font_family="Courier New"
+       )
+def io_loop():
+    parser = GooeyParser(prog='DiSpeechEval',
+                         description='Speech quantity and quality evaluation tool')
+    file_selector = parser.add_argument_group("Required Arguments", "Select either a file or a directory of audio files to analyze")
+    file_selector.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
+    file_selector.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
+    options = parser.add_argument_group("Analysis Options")
+    options.add_argument("--summarize", action="store_true", default=True, help="Return speech quantity and quality summaries")
+    options.add_argument("--flag", action="store_true", help="Return speech quantity and quality flags")
+    options.add_argument("--nonspeech_threshold", type=float, default=0.4, 
+                        help="Flags if the proportion of audio that is non-speech exceeds this threshold")
+    options.add_argument("--median_db_diff_thresh", type=float, default=0.065,
+                        help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
+    options.add_argument("--print_graphs", action="store_true", help="Prints text graph of speech/nonspeech")
+    options.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
+    
     args = parser.parse_args()
-    if gui:
-        if args.path != "":
-            path = Path(args.path)
-        elif args.folder != "":
-            path = Path(args.folder)
-        else:
-            raise Exception("No path or directory for analysis")
-    else:
-        path = Path(args.path)
+    if args.path != "": path = Path(args.path)
+    elif args.folder != "": path = Path(args.folder)
+    else: raise Exception("No path or directory for analysis")
     print(check_audio(path=path, 
                         return_flags=args.flag,
                         return_summary=args.summarize,

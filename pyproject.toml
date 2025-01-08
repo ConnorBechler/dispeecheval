@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "diaudeval"
+name = "dispeecheval"
 version = "0.1.0"
 description = "Voice activity and sound quality evaluation tool"
 authors = ["Connor Bechler <cbechler2@gmail.com>"]
