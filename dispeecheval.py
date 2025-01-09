@@ -197,7 +197,7 @@ def check_audio(path : Path,
          return_flags = True,
          return_summary = False,
          prop_nonspeech_thresh = .4, 
-         median_db_diff_thresh = .065, 
+         median_db_diff_thresh = 6.5, 
          print_graph=False, 
          print_medians=False):
     """
@@ -206,11 +206,10 @@ def check_audio(path : Path,
     Args:
         path (pathlib.Path) : path to an audio file supported by soundfile or a directory with said files
         prop_nonspeech_thresh (float) : the proportion of audio that is non-speech threshold, flags if greater than this argument
-        median_db_diff_thresh (float) : difference in median speech and non-speech decibel levels 
-            as a proportion of total recording decibel range threshold, flags if less than this argument
+        median_db_diff_thresh (float) : difference in median speech and non-speech decibel levels, flags if less than this argument
         print_graph (bool) : prints text graph of speech to non-speech in the audio file if True
         print_medians (bool) : prints median decibel levels for speech and non-speech in the audio file, as well as
-            the difference between the two as a proportion of the audio file's decibel range if True
+            the difference between the two if True
     Returns:
         results (polars.DataFrame) : table of varying dimensions depending on arguments, starts with file name
         if return_flags is True, silence_flag (bool) and db_diff_flag (bool) are the first two items in the list
@@ -219,70 +218,71 @@ def check_audio(path : Path,
     """
     results = []
     results_colheads = ["File"]
-    if return_flags: results_colheads += ["nonspeech_flag", "db_diff_flag"]
-    if return_summary: results_colheads += ["total_s","speech_s", "speech_median_db","nonspeech_median_db"]#,"db_range"]
+    if return_flags: results_colheads += ["nonspeech_flag", "dB_diff_flag"]
+    if return_summary: results_colheads += ["total_s","speech_s", "speech_median_dB","nonspeech_median_dB"]#,"db_range"]
     soundfile.available_formats
     if path.suffix == "": 
         paths = [path for path in path.iterdir() if path.suffix[1:].upper() in soundfile.available_formats().keys()]
     else: paths = [path]
-    for path in paths:
+    total = len(paths)
+    print(f"{total} valid sound file(s) found at path")
+    st = time.time()
+    for p, path in enumerate(paths):
         result = [path.stem]
         sample, sr = librosa.load(path)
         length, speech, nonspeech, segments, nonspeech_segments, graph = rvadfaster_speech_metrics(sample, sr)
         db_aud = librosa.amplitude_to_db(sample)
         db_max, db_min = np.min(db_aud), np.max(db_aud)
-        db_range = abs(db_max-db_min)
+        #db_range = abs(db_max-db_min)
         speech_aud, nonspeech_aud = return_speech_and_nonspeech_aud(db_aud, sr, segments, nonspeech_segments)
         sp_median_db, nsp_median_db = np.median(speech_aud), np.median(nonspeech_aud)
-        #print("Speech", to_minutes(speech), "Non-Speech", to_minutes(nonspeech))
+        #print("Speech:", to_minutes(speech), "Non-Speech:", to_minutes(nonspeech))
         if print_graph or print_medians:
             print(path.stem)
         if print_graph: print(graph)
         if print_medians: 
-                print("Median speech db:",sp_median_db,
-                    "Median non-speech db:",nsp_median_db,
-                    "Proportional diff:", (sp_median_db-nsp_median_db)/db_range)
+                print("Median speech dB:",sp_median_db,
+                    "Median non-speech dB:",nsp_median_db,
+                    "dB difference:", sp_median_db-nsp_median_db)
         if return_flags:
             silence_flag, db_diff_flag = False, False
             if nonspeech/length > prop_nonspeech_thresh: 
                 silence_flag = True
-            if (sp_median_db - nsp_median_db)/db_range < median_db_diff_thresh :
+            if (sp_median_db - nsp_median_db) < median_db_diff_thresh :
                 db_diff_flag = True
             result += [silence_flag, db_diff_flag]
         if return_summary: 
             result += [length, speech, sp_median_db, nsp_median_db]#,db_range]
         results.append(result)
+        print(f"Progress: {p+1}/{total} of files analyzed, {to_minutes(time.time()-st)} elapsed")
     #table = "\t".join(results_colheads) + "\n" + "\n".join(["\t".join([str(r) for r in result]) for result in results])
     table = pl.DataFrame(results,results_colheads,orient="row")
+    if return_summary:
+        print(table.select(pl.sum("total_s","speech_s")))
     return(table) 
-
-def add_sqanalyze(sparser=None, gui=False):
-    sqanalyze = sparser.add_parser("sqanalyze", help="Return sound quality metrics for file")
-    if gui: sqanalyze.add_argument("path", help="Path to audio file to analyze", widget="FileChooser")
-    else: sqanalyze.add_argument("path", help="Path to audio file to analyze")
-    sqanalyze.add_argument("--plot", action="store_true", help="Plot sound quality metrics")
-    sqanalyze.add_argument("--loudness", action="store_true", help="Return loudness")
-    sqanalyze.add_argument("--sharpness", action="store_true", help="Return sharpness")
-    sqanalyze.add_argument("--SII", action="store_true", help="Return speech intelligibility index")
-    sqanalyze.add_argument("--roughness", action="store_true", help="Return roughness")
 
 @Gooey(program_name="DiSpeechEval",
        default_size=(780, 650),
-       terminal_font_family="Courier New"
+       terminal_font_family="Courier New",
+       progress_regex=r"^Progress: (?P<current>\d+)/(?P<total>\d+) of",
+       progress_expr="current / total * 100"
        )
 def io_loop():
+    """
+    Main input/output loop for GUI and CLI; defaults to Gooey GUI unless ran with --ignore-gooey
+    """
     parser = GooeyParser(prog='DiSpeechEval',
                          description='Speech quantity and quality evaluation tool')
     file_selector = parser.add_argument_group("Required Arguments", "Select either a file or a directory of audio files to analyze")
     file_selector.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
     file_selector.add_argument("--folder", default="", help="Path to directory to analyze", widget="DirChooser")
     options = parser.add_argument_group("Analysis Options")
-    options.add_argument("--summarize", action="store_true", default=True, help="Return speech quantity and quality summaries")
+    options.add_argument("--summarize", action="store_true", help="Return speech quantity and quality summaries")
     options.add_argument("--flag", action="store_true", help="Return speech quantity and quality flags")
     options.add_argument("--nonspeech_threshold", type=float, default=0.4, 
                         help="Flags if the proportion of audio that is non-speech exceeds this threshold")
-    options.add_argument("--median_db_diff_thresh", type=float, default=0.065,
-                        help="Flags if difference in median speech and non-speech decibel levels as a proportion exceeds this threshold")
+    options.add_argument("--median_db_diff_thresh", type=float, default=6.5,
+                        help="Flags if difference in median speech and non-speech decibel levels is under this threshold")
     options.add_argument("--print_graphs", action="store_true", help="Prints text graph of speech/nonspeech")
     options.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
     
@@ -298,87 +298,7 @@ def io_loop():
                         print_graph=args.print_graphs,
                         print_medians=args.print_medians))
 
-#First Run: Median Speech DB Diff < .065, Non-speech Prop Thresh > .4
-#8 True Positives, 9 False Positives, 0 False Negatives
-#print(precision(8, 9), recall(8, 0), f1(8,9,0))
 
 if __name__ == "__main__":        
     io_loop()
-    """
-    #dir = Path("C:/Users/bechl/Downloads/low_aud_qual")
-    dirs = [Path("C:/Users/bechl/Downloads/kid"),Path("C:/Users/bechl/Downloads/teen"),Path("C:/Users/bechl/Downloads/adult")]
-    st = time.time()
-    #results = check_audio(dirs[2].joinpath("MCD-00157_2024-02-02_01_clear.wav"),return_summary=True)
-    #print(results)
-    #print("Took",time.time()-st, "seconds")
-    if True:
-        total_length = 0
-        for dir in dirs:
-            print(dir)
-            paths = [path for path in dir.iterdir() if path.suffix in [".wav", ".mp3"]]
-            for path in paths:
-                print(path.stem, end=" ")
-                results = check_audio(path, return_summary=True)
-                print(path.stem, "Flagged for Non-Speech :",results[0],"Flagged for DB diff:", results[1])
-                total_length += results[2]
-    print("Took",time.time()-st, "seconds,", to_minutes(time.time()-st, string=True))
-    print("Total audio length was", total_length, "seconds", to_minutes(total_length, string=True))
-    if False:
-        graphs = ""
-        col_names = ["file","length(s)","speech(s)","prop_nonspeech","SII", "db_speech","db_nonspeech"]
-        col_vals = []
-        for path in paths:
-            print(path.stem)
-            sample, sr = librosa.load(path)
-            #length, speech, nonspeech, chunks, graph = rvadfast_speech_metrics(sample, sr, name=path.stem)
-            st = time.time()
-            length, speech, nonspeech, chunks, ns_chunks, graph = rvadfaster_speech_metrics(sample, sr, name=path.stem)
-            print("Getting rvad segments and aud data took", time.time()-st, "seconds")
-            st = time.time()
-            db_aud = librosa.amplitude_to_db(sample)
-            db_max, db_min = np.min(db_aud), np.max(db_aud)
-            db_range = abs(db_max-db_min)
-            speech_aud, nonspeech_aud = return_speech_and_nonspeech_aud(db_aud, sr, chunks, ns_chunks)
-            print("Converting aud to db and returning speech/nonspeech took", time.time()-st, "seconds")
-            #speech_aud, nonspeech_aud = librosa.amplitude_to_db(speech_aud), librosa.amplitude_to_db(nonspeech_aud)
-            st = time.time()
-            sp_median_db, nsp_median_db = np.median(speech_aud), np.median(nonspeech_aud)
-            print("Calculating median db took", time.time()-st, "seconds")
-            #print("speech", sp_median_db/db_range, "nonspeech", nsp_median_db/db_range, "diff", (sp_median_db/db_range)-(nsp_median_db/db_range))
-            graphs += graph + path.stem + "\n"
-            if True:
-                print("total length", to_minutes(length))
-                print("speech", to_minutes(speech), end=" ")
-                print("nonspeech", to_minutes(nonspeech))
-                print("prop nonspeech", nonspeech/length)
-                print("median speech amplitude", sp_median_db)
-                print("median nonspeech amplitude", nsp_median_db)
-                SII = "NOT RETURNED"#aud_qual_metrics(sample, sr, chunk=path.stem)
-                col_vals.append([path.stem, length, speech, nonspeech/length, SII, sp_median_db/db_range, nsp_median_db/db_range])
-                #print(chunks)
-                if False:
-                    for c, chunk in enumerate(chunks[:-1]):
-                        data = sample[librosa.time_to_samples(chunk[0], sr=sr):
-                                    librosa.time_to_samples(chunk[1], sr=sr)]
-                        #print(data)
-                        print(f"speech {chunk}", np.average(abs(data)))
-                        sil_chunk = [chunk[1], chunks[c+1][0]]
-                        sil_data = sample[librosa.time_to_samples(sil_chunk[0], sr=sr)+1:
-                                    librosa.time_to_samples(sil_chunk[1], sr=sr)]
-                        print(f"nonspeech {sil_chunk}", np.average(abs(sil_data)))
-                        plt.plot(data)
-                        plt.title(f"abs db ={np.average(abs(data))}")
-                        plt.savefig(f"{chunk}speech.png")
-                        plt.clf()
-                        plt.plot(sil_data)
-                        plt.title(f"abs db ={np.average(abs(sil_data))}")
-                        plt.savefig(f"{sil_chunk}nonspeech.png")
-                        plt.clf()
-                        #soundfile.write(f"speech{chunk}.mp3",data,sr)
-                        #soundfile.write(f"nspeech{sil_chunk}.mp3",sil_data,sr)
-                        #aud_qual_metrics(data, sr, chunk)
-        out_table = pl.DataFrame(col_vals, col_names,orient="row")
-        out_table.write_csv(dir.joinpath(f"{dir.stem}_summary_table_avs.csv"))
-        print(graphs)
-    """
     
