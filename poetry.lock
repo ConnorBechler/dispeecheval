@@ -1227,6 +1227,20 @@ files = [
 ]
 
 [[package]]
+name = "pympi-ling"
+version = "1.70.2"
+description = "A python module for processing ELAN and Praat annotation files"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pympi-ling-1.70.2.tar.gz", hash = "sha256:30313054bfd71e6e48d66a80bca1d329fc337f50f869ba357ddbecac36c4eee5"},
+    {file = "pympi_ling-1.70.2-py2.py3-none-any.whl", hash = "sha256:06cd7c39c322a69bac39295fb9ea7a1aa9f32ba24939722bab2df58be1f87206"},
+]
+
+[package.extras]
+test = ["coverage (>=4.2)", "lxml", "pytest (>=5)", "pytest-cov", "pytest-mock"]
+
+[[package]]
 name = "pyparsing"
 version = "3.2.1"
 description = "pyparsing module - Classes and methods to define and execute parsing grammars"
@@ -1651,4 +1665,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "3145f390683b17951ebda09d098201aac39232ccad14b5770d3d558b11c2b88a"
+content-hash = "59e2c2ca5808eb223f0e9879f6ad036aa8c284b81f0ab18d99348abe68016f53"

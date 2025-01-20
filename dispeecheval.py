@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from gooey import Gooey, GooeyParser
+import pympi
 
 def to_minutes(seconds : int, string=True):
     """Utility for converting seconds to minutes and seconds
@@ -125,6 +126,16 @@ def return_speech_and_nonspeech_aud(lib_aud : np.ndarray,
         non_speech_aud += list(lib_aud[librosa.time_to_samples(segment[0], sr=sr):librosa.time_to_samples(segment[1], sr=sr)])
     return(np.array(speech_aud), np.array(non_speech_aud))
 
+def export_speech_segmentation(speech_segments, audio_path, output_type):
+    ts = pympi.Eaf()
+    ts.add_linked_file(file_path=audio_path, mimetype=audio_path.suffix[1:])
+    ts.remove_tier('default')
+    ts.add_tier("speech")
+    for segment in speech_segments:
+        ts.add_annotation("speech", int(segment[0]*1000), int(segment[1]*1000), "speech")
+    if output_type == '.TextGrid': ts = ts.to_textgrid()
+    ts.to_file(f"{audio_path.stem}{output_type}")
+
 def aud_qual_metrics(signal : np.ndarray, 
                      fs : int, 
                      chunk : str, 
@@ -198,7 +209,9 @@ def check_audio(path : Path,
          return_summary = False,
          prop_nonspeech_thresh = .4, 
          median_db_diff_thresh = 6.5, 
-         print_graph=False):
+         print_graph=False,
+         export_speech_chunks=False,
+         chunk_ftype=".TextGrid"):
     """
     Function for flagging audio files whose speech is either too short relative to the length of the recording 
     or too close in volume to non-speech
@@ -207,6 +220,8 @@ def check_audio(path : Path,
         prop_nonspeech_thresh (float) : the proportion of audio that is non-speech threshold, flags if greater than this argument
         median_db_diff_thresh (float) : difference in median speech and non-speech decibel levels, flags if less than this argument
         print_graph (bool) : prints text graph of speech to non-speech in the audio file if True
+        export_speech_chunks (bool) : exports either TextGrid or EAF with speech segments annotated if True
+        chunk_ftype (str) : decides if TextGrid or EAF is exported, if export_speech_chunks is True
     Returns:
         results (polars.DataFrame) : table of varying dimensions depending on arguments, starts with file name
         if return_flags is True, silence_flag (bool) and db_diff_flag (bool) are the first two items in the list
@@ -249,6 +264,7 @@ def check_audio(path : Path,
             result += [length, speech, sp_median_db, nsp_median_db, sp_median_db-nsp_median_db]#,db_range]
         results.append(result)
         print(f"  Progress: {p+1}/{total} of files analyzed, {to_minutes(time.time()-st)} elapsed")
+        if export_speech_chunks: export_speech_segmentation(segments, path, chunk_ftype)
     #table_text = "\t".join(results_colheads) + "\n" + "\n".join(["\t".join([str(r) for r in result]) for result in results])
     table = pl.DataFrame(results,results_colheads,orient="row")
     if return_summary:
@@ -269,7 +285,8 @@ def io_loop():
     """
     parser = GooeyParser(prog='DiSpeechEval',
                          description='Speech quantity and quality evaluation tool')
-    file_selector = parser.add_mutually_exclusive_group("Input")
+    required = parser.add_argument_group("Required Arguments")
+    file_selector = required.add_mutually_exclusive_group("Input")
     file_selector.add_argument("--path", default="", help="Path to audio file to analyze", widget="FileChooser")
     file_selector.add_argument("--folder", default="", help="Path to directory containing audio files to analyze", widget="DirChooser")
     options = parser.add_argument_group("Analysis Options")
@@ -281,19 +298,27 @@ def io_loop():
     options.add_argument("--median_db_diff_thresh", metavar="Median dB Difference Threshold", type=float, default=6.5,
                         help="Flags if difference in median speech and non-speech decibel levels is under this threshold")
     options.add_argument("--print_graphs", action="store_true", help="Prints text visualization of speech/nonspeech")
+    annotation_type = required.add_mutually_exclusive_group()
+    annotation_type.add_argument("--no_export", metavar= "No Export", action="store_true", default=True, help="Do not export speech chunk annotations")
+    annotation_type.add_argument("--TextGrid", action="store_true", help="Export speech chunks annotation as EAF")
+    annotation_type.add_argument("--EAF", action="store_true", help="Export speech chunks annotation as EAF")
     #options.add_argument("--print_medians", action="store_true", help="Prints median decibel of speech and nonspeech")
     
     args = parser.parse_args()
     if args.path != "": path = Path(args.path)
     elif args.folder != "": path = Path(args.folder)
     else: raise Exception("No path or directory for analysis")
+    if args.TextGrid : export_speech_chunks, chunks_ftype = True, ".TextGrid"
+    elif args.EAF : export_speech_chunks, chunks_ftype = True, ".eaf"
+    elif args.no_export : export_speech_chunks, chunks_ftype = False, ".TextGrid"
     check_audio(path=path, 
                         return_flags=args.flag,
                         return_summary=args.summarize,
                         prop_nonspeech_thresh=args.nonspeech_threshold,
                         median_db_diff_thresh=args.median_db_diff_thresh,
-                        print_graph=args.print_graphs)#,
-                        #print_medians=args.print_medians))
+                        print_graph=args.print_graphs,
+                        export_speech_chunks=export_speech_chunks,
+                        chunk_ftype=chunks_ftype)
 
 
 if __name__ == "__main__":        
